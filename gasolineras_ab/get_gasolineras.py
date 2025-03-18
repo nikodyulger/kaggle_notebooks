@@ -2,11 +2,16 @@ import json
 import time
 import pandas as pd
 import requests as req
-from dataclasses import dataclass, asdict
-from rich.pretty import pprint
-
+from datetime import datetime, timedelta
+from dataclasses import dataclass
+from rich.console import Console
+from rich.progress import track
 
 # Doc de la API https://sedeaplicaciones.minetur.gob.es/ServiciosRESTCarburantes/PreciosCarburantes/help
+
+console = Console()
+
+
 @dataclass
 class Gasolinera:
     id_estacion: str
@@ -54,6 +59,17 @@ def get_provincias():
 
 
 def get_municipios():
+    """
+    response from API
+        {
+            "IDMunicipio": "54",
+            "IDProvincia": "02",
+            "IDCCAA": "07",
+            "Municipio": "Albacete",
+            "Provincia": "ALBACETE",
+            "CCAA": "Castilla la Mancha"
+        }
+    """
     URL = "https://sedeaplicaciones.minetur.gob.es/ServiciosRESTCarburantes/PreciosCarburantes/Listados/Municipios/"
 
     res = req.get(URL)
@@ -168,27 +184,61 @@ def get_precios_gasolineras(data: dict):
         )
         precios.append(precio)
 
-    df = pd.DataFrame(precios)
-    df.to_csv("data/precios_gasolineras.csv", index=False)
+    # df = pd.DataFrame(precios)
+    # df.to_csv("data/precios_gasolineras.csv", index=False)
 
     return precios
 
 
-"""
-    {
-        "IDMunicipio": "54",
-        "IDProvincia": "02",
-        "IDCCAA": "07",
-        "Municipio": "Albacete",
-        "Provincia": "ALBACETE",
-        "CCAA": "Castilla la Mancha"
-    },
-"""
+def generar_fechas(fecha_ini: str, fecha_fin: str):
+    """
+    fecha_ini -> formato dd-mm-yy
+    fecha_fin -> formato dd-mm-yy
+    """
+
+    dates = []
+    start_date = datetime.strptime(fecha_ini, "%d-%m-%Y")
+    end_date = datetime.strptime(fecha_fin, "%d-%m-%Y")
+    delta = timedelta(days=1)
+
+    while start_date <= end_date:
+        yield start_date.strftime("%d-%m-%Y")
+        start_date += delta
+
+
+def main():
+    first_attempt = True
+    fecha_ini = "01-01-2022"
+    fecha_fin = "30-01-2022"
+
+    for fecha in track(
+        generar_fechas("01-01-2022", "31-12-2024"),
+        description="Procesando datos de gasolineras...",
+        transient=True,
+    ):
+        data = get_precios_fecha_municipio(fecha, "54")  # 54 es el id de Albacete
+        precios = get_precios_gasolineras(data)
+
+        df = pd.DataFrame(precios)
+        if first_attempt:
+            df.to_csv(
+                "data/precios_gasolineras.csv", mode="w", header=True, index=False
+            )
+            first_attempt = False
+        else:
+            df.to_csv(
+                "data/precios_gasolineras.csv", mode="a", header=False, index=False
+            )
+        time.sleep(0.5)
+        console.print(f"Processing date: {fecha}")
+
 
 if __name__ == "__main__":
     # get_comunidades_autonomas()
     # get_provincias()
     # get_municipios()
-    data = get_precios_fecha_municipio("15-02-2025", "54")
+
+    # data = get_precios_fecha_municipio("15-02-2025", "54")
     # get_gasolineras_ab(data)  # ejecutar solo una vez
-    get_precios_gasolineras(data)  # ejecutar por cada día del año desde 2022 hasta ayer
+
+    main()
